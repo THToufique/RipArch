@@ -30,11 +30,19 @@ log() {
 print_header() {
     clear
     echo -e "${CYAN}"
-    echo "╔════════════════════════════════════════════════════════╗"
-    echo "║        ARCH LINUX INSTALLATION SCRIPT                  ║"
-    echo "║        Complete System Setup with Hyprland             ║"
-    echo "╚════════════════════════════════════════════════════════╝"
-    echo -e "${NC}"
+    cat << "EOF"
+    ____  _        _             _       ___           _        _ _           
+   |  _ \(_)_ __  / \   _ __ ___| |__   |_ _|_ __  ___| |_ __ _| | | ___ _ __ 
+   | |_) | | '_ \/ _ \ | '__/ __| '_ \   | || '_ \/ __| __/ _` | | |/ _ \ '__|
+   |  _ <| | |_) / ___ \| | | (__| | | |  | || | | \__ \ || (_| | | |  __/ |   
+   |_| \_\_| .__/_/   \_\_|  \___|_| |_| |___|_| |_|___/\__\__,_|_|_|\___|_|   
+           |_|                                                                  
+
+EOF
+    echo -e "${MAGENTA}                 Complete System Setup with Hyprland${NC}"
+    echo ""
+    echo -e "${CYAN}═══════════════════════════════════════════════════════════════════════${NC}"
+    echo ""
 }
 
 print_info() {
@@ -293,40 +301,88 @@ select_filesystem() {
 configure_swap() {
     print_header
     echo "Select swap configuration:"
-    echo "1) Traditional swap partition (recommended for hibernation)"
-    echo "2) Swap file (flexible size)"
-    echo "3) zram (compressed RAM swap, no disk space used)"
+    echo ""
+    echo "1) Traditional swap partition"
+    echo "   → Uses disk space (HDD/SSD)"
+    echo "   → Best for hibernation support"
+    echo "   → Recommended if you have limited RAM"
+    echo ""
+    echo "2) Swap file"
+    echo "   → Uses disk space (HDD/SSD)"
+    echo "   → Flexible, can be resized later"
+    echo "   → Good general purpose option"
+    echo ""
+    echo "3) zram (compressed RAM swap)"
+    echo "   → Uses RAM (compressed), NO disk space"
+    echo "   → Can be LARGER than physical RAM due to compression"
+    echo "   → Example: 64GB zram on 16GB RAM is possible!"
+    echo "   → Faster than disk swap"
+    echo "   → Reduces SSD wear"
+    echo "   → Good if you have 4GB+ RAM"
+    echo ""
     echo "4) No swap"
+    echo "   → No swap at all"
+    echo "   → Only if you have plenty of RAM (16GB+)"
+    echo ""
     read -p "Enter choice [1-4]: " swap_choice
     
     case $swap_choice in
         1)
             SWAP_TYPE="partition"
             echo ""
-            echo "Recommended swap sizes:"
-            echo "  RAM <= 2GB   : 2x RAM"
-            echo "  RAM 2-8GB    : 1x RAM"
+            echo "Recommended swap sizes (uses DISK space):"
+            echo "  RAM <= 2GB   : 2x RAM (e.g., 4GB swap for 2GB RAM)"
+            echo "  RAM 2-8GB    : 1x RAM (e.g., 8GB swap for 8GB RAM)"
             echo "  RAM > 8GB    : 8GB or 0.5x RAM"
             echo ""
             read -p "Enter swap size in GB (e.g., 4): " SWAP_SIZE
-            print_success "Swap partition: ${SWAP_SIZE}GB"
+            print_success "Swap partition: ${SWAP_SIZE}GB (will use disk space)"
             log "Swap Type: Partition, Size: ${SWAP_SIZE}GB"
             ;;
         2)
             SWAP_TYPE="file"
             echo ""
+            echo "Swap file will use DISK space."
             read -p "Enter swap file size in GB (e.g., 4): " SWAP_SIZE
-            print_success "Swap file: ${SWAP_SIZE}GB"
+            print_success "Swap file: ${SWAP_SIZE}GB (will use disk space)"
             log "Swap Type: File, Size: ${SWAP_SIZE}GB"
             ;;
         3)
             SWAP_TYPE="zram"
             echo ""
-            echo "zram will use a portion of RAM for compressed swap"
-            read -p "Enter zram size as fraction of RAM (0.5 = 50%, 1.0 = 100%): " ZRAM_FRACTION
-            ZRAM_FRACTION=${ZRAM_FRACTION:-0.5}
-            print_success "zram swap: ${ZRAM_FRACTION}x RAM"
-            log "Swap Type: zram, Fraction: ${ZRAM_FRACTION}"
+            echo "zram configuration (NO disk space used):"
+            echo ""
+            echo "Choose setup method:"
+            echo "1) Simple - fraction of RAM (e.g., 0.5 = half of RAM)"
+            echo "2) Advanced - specify exact size in GB (can be larger than RAM)"
+            echo ""
+            read -p "Enter choice [1-2]: " zram_method
+            
+            if [[ "$zram_method" == "2" ]]; then
+                echo ""
+                echo "You can set zram larger than your physical RAM!"
+                echo "Examples:"
+                echo "  - 16GB RAM → Can use 32GB, 64GB, or even 128GB zram"
+                echo "  - 8GB RAM  → Can use 16GB, 32GB zram"
+                echo "  - Due to compression, it works efficiently"
+                echo ""
+                read -p "Enter zram size in GB (e.g., 64): " ZRAM_SIZE
+                ZRAM_FRACTION="custom"
+                print_success "zram swap: ${ZRAM_SIZE}GB (NO disk space used)"
+                log "Swap Type: zram, Size: ${ZRAM_SIZE}GB"
+            else
+                echo ""
+                echo "Fraction method:"
+                echo "  0.5 = 50% of RAM"
+                echo "  1.0 = 100% of RAM (equals your RAM size)"
+                echo "  2.0 = 200% of RAM (double your RAM size)"
+                echo "  4.0 = 400% of RAM (4x your RAM size)"
+                echo ""
+                read -p "Enter zram fraction (e.g., 2.0 for double RAM): " ZRAM_FRACTION
+                ZRAM_FRACTION=${ZRAM_FRACTION:-0.5}
+                print_success "zram swap: ${ZRAM_FRACTION}x RAM (NO disk space used)"
+                log "Swap Type: zram, Fraction: ${ZRAM_FRACTION}"
+            fi
             ;;
         4)
             SWAP_TYPE="none"
@@ -556,12 +612,24 @@ install_base_system() {
     if [[ "$SWAP_TYPE" == "zram" ]]; then
         print_info "Configuring zram..."
         mkdir -p /mnt/etc/systemd/zram-generator.conf.d
-        cat > /mnt/etc/systemd/zram-generator.conf << EOF
+        
+        if [[ "$ZRAM_FRACTION" == "custom" ]]; then
+            # Custom size in GB
+            cat > /mnt/etc/systemd/zram-generator.conf << EOF
+[zram0]
+zram-size = $(($ZRAM_SIZE * 1024))
+compression-algorithm = zstd
+EOF
+            print_success "zram configured with ${ZRAM_SIZE}GB"
+        else
+            # Fraction of RAM
+            cat > /mnt/etc/systemd/zram-generator.conf << EOF
 [zram0]
 zram-size = ram * $ZRAM_FRACTION
 compression-algorithm = zstd
 EOF
-        print_success "zram configured"
+            print_success "zram configured with ${ZRAM_FRACTION}x RAM"
+        fi
     fi
     
     pause
