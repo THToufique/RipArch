@@ -179,7 +179,8 @@ update_mirrors() {
     print_header
     print_info "Updating mirrorlist for fastest mirrors..."
     
-    echo "Select your country/region:"
+    echo "Select your country/region for mirror selection:"
+    echo ""
     echo "1) United States"
     echo "2) United Kingdom"
     echo "3) Germany"
@@ -189,8 +190,31 @@ update_mirrors() {
     echo "7) France"
     echo "8) Japan"
     echo "9) Brazil"
-    echo "10) Other (skip mirror update)"
-    read -p "Enter your choice [1-10]: " mirror_choice
+    echo "10) China"
+    echo "11) Russia"
+    echo "12) South Korea"
+    echo "13) Netherlands"
+    echo "14) Sweden"
+    echo "15) Poland"
+    echo "16) Spain"
+    echo "17) Italy"
+    echo "18) Turkey"
+    echo "19) Mexico"
+    echo "20) Argentina"
+    echo "21) Bangladesh"
+    echo "22) Pakistan"
+    echo "23) Indonesia"
+    echo "24) Singapore"
+    echo "25) Malaysia"
+    echo "26) Thailand"
+    echo "27) Vietnam"
+    echo "28) Philippines"
+    echo "29) South Africa"
+    echo "30) Egypt"
+    echo "31) Custom (Enter country code manually)"
+    echo "32) Skip mirror update (use default mirrors)"
+    echo ""
+    read -p "Enter your choice [1-32]: " mirror_choice
     
     case $mirror_choice in
         1) COUNTRY="US" ;;
@@ -202,14 +226,73 @@ update_mirrors() {
         7) COUNTRY="FR" ;;
         8) COUNTRY="JP" ;;
         9) COUNTRY="BR" ;;
-        10) print_info "Skipping mirror update"; return ;;
-        *) print_warning "Invalid choice, skipping mirror update"; return ;;
+        10) COUNTRY="CN" ;;
+        11) COUNTRY="RU" ;;
+        12) COUNTRY="KR" ;;
+        13) COUNTRY="NL" ;;
+        14) COUNTRY="SE" ;;
+        15) COUNTRY="PL" ;;
+        16) COUNTRY="ES" ;;
+        17) COUNTRY="IT" ;;
+        18) COUNTRY="TR" ;;
+        19) COUNTRY="MX" ;;
+        20) COUNTRY="AR" ;;
+        21) COUNTRY="BD" ;;
+        22) COUNTRY="PK" ;;
+        23) COUNTRY="ID" ;;
+        24) COUNTRY="SG" ;;
+        25) COUNTRY="MY" ;;
+        26) COUNTRY="TH" ;;
+        27) COUNTRY="VN" ;;
+        28) COUNTRY="PH" ;;
+        29) COUNTRY="ZA" ;;
+        30) COUNTRY="EG" ;;
+        31) 
+            echo ""
+            echo "Common country codes: US, GB, DE, FR, IN, CN, JP, AU, etc."
+            echo "For full list, visit: https://www.iso.org/iso-3166-country-codes.html"
+            read -p "Enter 2-letter country code (e.g., BD, PK, NZ): " COUNTRY
+            COUNTRY=$(echo "$COUNTRY" | tr '[:lower:]' '[:upper:]')
+            ;;
+        32) 
+            print_info "Skipping mirror update, using default mirrors"
+            log "Mirror update: Skipped"
+            pause
+            return 
+            ;;
+        *) 
+            print_warning "Invalid choice, skipping mirror update"
+            log "Mirror update: Skipped (invalid choice)"
+            pause
+            return 
+            ;;
     esac
     
-    print_info "Updating mirrors for country: $COUNTRY"
-    pacman -Sy --noconfirm reflector
-    reflector --country "$COUNTRY" --age 12 --protocol https --sort rate --save /etc/pacman.d/mirrorlist
-    print_success "Mirrorlist updated successfully!"
+    if [[ -n "$COUNTRY" ]]; then
+        print_info "Updating mirrors for country: $COUNTRY"
+        
+        # Install reflector if not present
+        if ! command -v reflector &> /dev/null; then
+            print_info "Installing reflector..."
+            pacman -Sy --noconfirm reflector
+        fi
+        
+        # Backup original mirrorlist
+        cp /etc/pacman.d/mirrorlist /etc/pacman.d/mirrorlist.backup
+        
+        # Update mirrorlist
+        print_info "Fetching fastest mirrors... (this may take a moment)"
+        if reflector --country "$COUNTRY" --age 12 --protocol https --sort rate --save /etc/pacman.d/mirrorlist 2>/dev/null; then
+            print_success "Mirrorlist updated successfully for $COUNTRY!"
+            log "Mirror country: $COUNTRY"
+        else
+            print_warning "Could not find mirrors for $COUNTRY, trying worldwide mirrors..."
+            reflector --age 12 --protocol https --sort rate --save /etc/pacman.d/mirrorlist
+            print_success "Worldwide mirrors configured"
+            log "Mirror country: Worldwide (fallback)"
+        fi
+    fi
+    
     pause
 }
 
@@ -563,6 +646,15 @@ install_base_system() {
     print_header
     print_info "Installing base system..."
     
+    # Initialize pacman keyring first
+    print_info "Initializing pacman keyring..."
+    pacman-key --init
+    pacman-key --populate archlinux
+    
+    # Update archlinux-keyring to latest
+    print_info "Updating keyring..."
+    pacman -Sy --noconfirm archlinux-keyring
+    
     # Install base packages
     PACKAGES="base base-devel linux linux-firmware nano vim networkmanager grub"
     
@@ -588,7 +680,22 @@ install_base_system() {
         PACKAGES="$PACKAGES zram-generator"
     fi
     
-    pacstrap /mnt $PACKAGES
+    print_info "Installing packages (this may take a while)..."
+    pacstrap -K /mnt $PACKAGES
+    
+    if [[ $? -ne 0 ]]; then
+        print_error "Package installation failed!"
+        print_info "Trying again with keyring refresh..."
+        
+        # Refresh keys and try again
+        pacman-key --refresh-keys
+        pacstrap -K /mnt $PACKAGES
+        
+        if [[ $? -ne 0 ]]; then
+            print_error "Installation failed again. Please check your internet connection."
+            exit 1
+        fi
+    fi
     
     print_success "Base system installed!"
     
@@ -642,28 +749,65 @@ configure_system() {
     
     # Timezone
     echo ""
-    echo "Select timezone:"
-    echo "1) America/New_York"
-    echo "2) America/Los_Angeles"
-    echo "3) Europe/London"
-    echo "4) Europe/Berlin"
-    echo "5) Asia/Kolkata"
-    echo "6) Asia/Tokyo"
-    echo "7) Australia/Sydney"
-    echo "8) Custom"
-    read -p "Enter choice [1-8]: " tz_choice
+    echo "Select timezone configuration method:"
+    echo "1) Select from common timezones"
+    echo "2) Enter timezone manually (Region/City format)"
+    echo ""
+    read -p "Enter choice [1-2]: " tz_method
     
-    case $tz_choice in
-        1) TIMEZONE="America/New_York" ;;
-        2) TIMEZONE="America/Los_Angeles" ;;
-        3) TIMEZONE="Europe/London" ;;
-        4) TIMEZONE="Europe/Berlin" ;;
-        5) TIMEZONE="Asia/Kolkata" ;;
-        6) TIMEZONE="Asia/Tokyo" ;;
-        7) TIMEZONE="Australia/Sydney" ;;
-        8) read -p "Enter timezone (e.g., Europe/Paris): " TIMEZONE ;;
-        *) TIMEZONE="UTC" ;;
-    esac
+    if [[ "$tz_method" == "2" ]]; then
+        echo ""
+        echo "Enter timezone in Region/City format"
+        echo "Examples: America/New_York, Europe/London, Asia/Dhaka, Asia/Kolkata"
+        echo "For full list, check: /usr/share/zoneinfo/"
+        read -p "Enter timezone: " TIMEZONE
+    else
+        echo ""
+        echo "Select timezone:"
+        echo "1) America/New_York (EST/EDT)"
+        echo "2) America/Los_Angeles (PST/PDT)"
+        echo "3) America/Chicago (CST/CDT)"
+        echo "4) Europe/London (GMT/BST)"
+        echo "5) Europe/Paris (CET/CEST)"
+        echo "6) Europe/Berlin (CET/CEST)"
+        echo "7) Asia/Kolkata (IST)"
+        echo "8) Asia/Dhaka (BST)"
+        echo "9) Asia/Karachi (PKT)"
+        echo "10) Asia/Tokyo (JST)"
+        echo "11) Asia/Shanghai (CST)"
+        echo "12) Asia/Dubai (GST)"
+        echo "13) Asia/Singapore (SGT)"
+        echo "14) Asia/Bangkok (ICT)"
+        echo "15) Asia/Jakarta (WIB)"
+        echo "16) Australia/Sydney (AEST/AEDT)"
+        echo "17) Pacific/Auckland (NZST/NZDT)"
+        echo "18) Africa/Cairo (EET)"
+        echo "19) Africa/Johannesburg (SAST)"
+        read -p "Enter choice [1-19]: " tz_choice
+        
+        case $tz_choice in
+            1) TIMEZONE="America/New_York" ;;
+            2) TIMEZONE="America/Los_Angeles" ;;
+            3) TIMEZONE="America/Chicago" ;;
+            4) TIMEZONE="Europe/London" ;;
+            5) TIMEZONE="Europe/Paris" ;;
+            6) TIMEZONE="Europe/Berlin" ;;
+            7) TIMEZONE="Asia/Kolkata" ;;
+            8) TIMEZONE="Asia/Dhaka" ;;
+            9) TIMEZONE="Asia/Karachi" ;;
+            10) TIMEZONE="Asia/Tokyo" ;;
+            11) TIMEZONE="Asia/Shanghai" ;;
+            12) TIMEZONE="Asia/Dubai" ;;
+            13) TIMEZONE="Asia/Singapore" ;;
+            14) TIMEZONE="Asia/Bangkok" ;;
+            15) TIMEZONE="Asia/Jakarta" ;;
+            16) TIMEZONE="Australia/Sydney" ;;
+            17) TIMEZONE="Pacific/Auckland" ;;
+            18) TIMEZONE="Africa/Cairo" ;;
+            19) TIMEZONE="Africa/Johannesburg" ;;
+            *) TIMEZONE="UTC" ;;
+        esac
+    fi
     
     arch-chroot /mnt ln -sf /usr/share/zoneinfo/"$TIMEZONE" /etc/localtime
     arch-chroot /mnt hwclock --systohc
@@ -671,8 +815,74 @@ configure_system() {
     
     # Locale
     echo ""
-    read -p "Enter locale (default: en_US.UTF-8): " LOCALE
-    LOCALE=${LOCALE:-en_US.UTF-8}
+    echo "Select locale configuration method:"
+    echo "1) Select from common locales"
+    echo "2) Enter locale manually"
+    echo ""
+    read -p "Enter choice [1-2]: " locale_method
+    
+    if [[ "$locale_method" == "2" ]]; then
+        echo ""
+        echo "Enter locale (e.g., en_US.UTF-8, en_GB.UTF-8, bn_BD.UTF-8)"
+        echo "Common formats: language_COUNTRY.UTF-8"
+        read -p "Enter locale: " LOCALE
+    else
+        echo ""
+        echo "Select locale:"
+        echo "1) en_US.UTF-8 (English - United States)"
+        echo "2) en_GB.UTF-8 (English - United Kingdom)"
+        echo "3) en_CA.UTF-8 (English - Canada)"
+        echo "4) en_AU.UTF-8 (English - Australia)"
+        echo "5) de_DE.UTF-8 (German - Germany)"
+        echo "6) fr_FR.UTF-8 (French - France)"
+        echo "7) es_ES.UTF-8 (Spanish - Spain)"
+        echo "8) it_IT.UTF-8 (Italian - Italy)"
+        echo "9) pt_BR.UTF-8 (Portuguese - Brazil)"
+        echo "10) ru_RU.UTF-8 (Russian - Russia)"
+        echo "11) ja_JP.UTF-8 (Japanese - Japan)"
+        echo "12) zh_CN.UTF-8 (Chinese - China)"
+        echo "13) ko_KR.UTF-8 (Korean - Korea)"
+        echo "14) ar_SA.UTF-8 (Arabic - Saudi Arabia)"
+        echo "15) hi_IN.UTF-8 (Hindi - India)"
+        echo "16) bn_BD.UTF-8 (Bengali - Bangladesh)"
+        echo "17) ur_PK.UTF-8 (Urdu - Pakistan)"
+        echo "18) id_ID.UTF-8 (Indonesian - Indonesia)"
+        echo "19) th_TH.UTF-8 (Thai - Thailand)"
+        echo "20) vi_VN.UTF-8 (Vietnamese - Vietnam)"
+        echo "21) tr_TR.UTF-8 (Turkish - Turkey)"
+        echo "22) pl_PL.UTF-8 (Polish - Poland)"
+        echo "23) nl_NL.UTF-8 (Dutch - Netherlands)"
+        echo "24) sv_SE.UTF-8 (Swedish - Sweden)"
+        read -p "Enter choice [1-24]: " locale_choice
+        
+        case $locale_choice in
+            1) LOCALE="en_US.UTF-8" ;;
+            2) LOCALE="en_GB.UTF-8" ;;
+            3) LOCALE="en_CA.UTF-8" ;;
+            4) LOCALE="en_AU.UTF-8" ;;
+            5) LOCALE="de_DE.UTF-8" ;;
+            6) LOCALE="fr_FR.UTF-8" ;;
+            7) LOCALE="es_ES.UTF-8" ;;
+            8) LOCALE="it_IT.UTF-8" ;;
+            9) LOCALE="pt_BR.UTF-8" ;;
+            10) LOCALE="ru_RU.UTF-8" ;;
+            11) LOCALE="ja_JP.UTF-8" ;;
+            12) LOCALE="zh_CN.UTF-8" ;;
+            13) LOCALE="ko_KR.UTF-8" ;;
+            14) LOCALE="ar_SA.UTF-8" ;;
+            15) LOCALE="hi_IN.UTF-8" ;;
+            16) LOCALE="bn_BD.UTF-8" ;;
+            17) LOCALE="ur_PK.UTF-8" ;;
+            18) LOCALE="id_ID.UTF-8" ;;
+            19) LOCALE="th_TH.UTF-8" ;;
+            20) LOCALE="vi_VN.UTF-8" ;;
+            21) LOCALE="tr_TR.UTF-8" ;;
+            22) LOCALE="pl_PL.UTF-8" ;;
+            23) LOCALE="nl_NL.UTF-8" ;;
+            24) LOCALE="sv_SE.UTF-8" ;;
+            *) LOCALE="en_US.UTF-8" ;;
+        esac
+    fi
     
     echo "$LOCALE UTF-8" >> /mnt/etc/locale.gen
     arch-chroot /mnt locale-gen
