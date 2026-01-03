@@ -1008,7 +1008,7 @@ install_desktop_environment() {
     case $de_choice in
         1)
             print_info "Installing KDE Plasma..."
-            arch-chroot /mnt pacman -S --noconfirm xorg plasma plasma-wayland-session kde-applications sddm
+            arch-chroot /mnt pacman -S --noconfirm xorg plasma kde-applications sddm
             arch-chroot /mnt systemctl enable sddm
             log "Desktop Environment: KDE Plasma"
             ;;
