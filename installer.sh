@@ -573,8 +573,12 @@ partition_disk() {
     # Setup encryption if requested
     if [[ "$ENCRYPTION" == "yes" ]]; then
         print_info "Setting up LUKS encryption..."
-        echo -n "$ENCRYPT_PASS" | cryptsetup luksFormat "$ROOT_PARTITION" -
-        echo -n "$ENCRYPT_PASS" | cryptsetup open "$ROOT_PARTITION" cryptroot -
+        # Use a temporary file for secure password handling
+        TEMP_PASS_FILE=$(mktemp)
+        echo -n "$ENCRYPT_PASS" > "$TEMP_PASS_FILE"
+        cryptsetup luksFormat "$ROOT_PARTITION" "$TEMP_PASS_FILE"
+        cryptsetup open "$ROOT_PARTITION" cryptroot --key-file "$TEMP_PASS_FILE"
+        rm -f "$TEMP_PASS_FILE"
         ROOT_PARTITION_MAPPED="/dev/mapper/cryptroot"
         print_success "Encryption setup complete!"
     else
@@ -914,11 +918,25 @@ create_user() {
     
     arch-chroot /mnt useradd -m -G wheel,audio,video,storage,optical -s /bin/bash "$USERNAME"
     
-    echo "Set password for $USERNAME:"
-    arch-chroot /mnt passwd "$USERNAME"
+    # Set user password with retry
+    while true; do
+        echo "Set password for $USERNAME:"
+        if arch-chroot /mnt passwd "$USERNAME"; then
+            break
+        else
+            print_error "Failed to set user password. Please try again."
+        fi
+    done
     
-    echo "Set root password:"
-    arch-chroot /mnt passwd
+    # Set root password with retry
+    while true; do
+        echo "Set root password:"
+        if arch-chroot /mnt passwd; then
+            break
+        else
+            print_error "Failed to set root password. Please try again."
+        fi
+    done
     
     # Enable sudo for wheel group
     sed -i 's/^# %wheel ALL=(ALL:ALL) ALL/%wheel ALL=(ALL:ALL) ALL/' /mnt/etc/sudoers
@@ -1252,7 +1270,7 @@ bind = $mainMod, down, movefocus, d
 
 # Move focus with mainMod + hjkl
 bind = $mainMod, h, movefocus, l
-bind = $mainMod, l, movefocus, r
+bind = $mainMod, semicolon, movefocus, r
 bind = $mainMod, k, movefocus, u
 bind = $mainMod, j, movefocus, d
 
